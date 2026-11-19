@@ -121,7 +121,7 @@ export default function TypeToSiriCommand() {
         id="translateToEnglish"
         title="Translation"
         label="将中文自动翻译为英文后发送给 Siri"
-        info="开启后，若输入包含中文会自动翻译为英文再发送（优先使用 Raycast AI，不可用时回退 Google Translate）；纯英文不触发翻译。按 ⌘T 可快速切换，状态会自动记住。"
+        info="开启后，若输入包含中文会自动通过 Google Translate 翻译为英文再发送（免 Key、不消耗 Raycast AI 额度）；纯英文不触发翻译。按 ⌘T 可快速切换，状态会自动记住。"
         value={translateToEnglish}
         onChange={updateTranslateToggle}
       />
