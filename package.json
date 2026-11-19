@@ -16,15 +16,7 @@
       "name": "type-to-siri",
       "title": "Type to Siri",
       "description": "Ask Siri to do something",
-      "mode": "no-view",
-      "arguments": [
-        {
-          "type": "text",
-          "name": "prompt",
-          "placeholder": "Prompt",
-          "required": false
-        }
-      ]
+      "mode": "view"
     }
   ],
   "tools": [
@@ -40,7 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.8.10",
-    "@types/react": "^18.3.3",
+    "@types/react": "^19.0.10",
     "typescript": "^5.4.5"
   },
   "scripts": {

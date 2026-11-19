@@ -4,7 +4,8 @@ A fixed & enhanced Raycast extension for macOS to invoke **Type to Siri** (and s
 
 ## What's Fixed / Improved
 
-- **Unicode & Chinese input support**: Uses concealed clipboard paste (`Clipboard.copy(..., { concealed: true })` + `⌘V` + automatic clipboard restoration) instead of AppleScript `keystroke`, fixing broken CJK input, quotes, and special characters without polluting clipboard history.
+- **Full-window multi-line input UI**: Uses a dedicated Raycast `Form.TextArea` view instead of a cramped inline argument field (`⌘↩` to send, or leave empty to summon Siri directly).
+- **Unicode & Chinese input support**: Uses concealed clipboard paste (`Clipboard.copy(..., { concealed: true })` + `⌘V` + automatic clipboard restoration) instead of AppleScript `keystroke`, fixing broken CJK input, multi-line text, quotes, and special characters without polluting clipboard history.
 - **Broad macOS Menu Bar compatibility**: Finds and triggers the Siri menu bar item across `SystemUIServer`, `ControlCenter`, `Siri`, and `Siri AI` (skipping standard application menu bars).
 - **Visible error feedback**: Replaces `showToast` (which was invisible after `closeMainWindow()`) with `showHUD`.
 - **Clean invocation**: Removes the extraneous `Esc` keypress and safely handles empty/optional prompts.

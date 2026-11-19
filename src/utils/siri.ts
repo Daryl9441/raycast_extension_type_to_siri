@@ -72,7 +72,7 @@ end tell
 `;
 
 export async function summonAndSendToSiri(rawPrompt?: string): Promise<string> {
-  const prompt = typeof rawPrompt === "string" ? rawPrompt.trim() : "";
+  const prompt = typeof rawPrompt === "string" ? rawPrompt.trim().replace(/\r?\n+/g, " ") : "";
 
   const result = await runAppleScript(SUMMON_SIRI_SCRIPT);
   if (result === "not-found") {
