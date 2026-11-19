@@ -1,0 +1,53 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "siri",
+  "title": "Siri",
+  "description": "Type a request to Siri on your Mac, or let Raycast AI send commands to Siri (fixed for macOS Siri AI / ControlCenter).",
+  "icon": "siri-icon.png",
+  "author": "daryl9441",
+  "categories": [
+    "System",
+    "Developer Tools",
+    "Productivity"
+  ],
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "type-to-siri",
+      "title": "Type to Siri",
+      "description": "Ask Siri to do something",
+      "mode": "no-view",
+      "arguments": [
+        {
+          "type": "text",
+          "name": "prompt",
+          "placeholder": "Prompt",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "ask-siri",
+      "title": "Ask Siri",
+      "description": "Send a command to Siri"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.87.5",
+    "@raycast/utils": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.10",
+    "@types/react": "^18.3.3",
+    "typescript": "^5.4.5"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop"
+  },
+  "platforms": [
+    "macOS"
+  ]
+}
