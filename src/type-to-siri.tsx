@@ -5,6 +5,7 @@ import {
   Form,
   Icon,
   LocalStorage,
+  open,
   popToRoot,
   showHUD,
   showToast,
@@ -12,7 +13,7 @@ import {
 } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { summonAndSendToSiri } from "./utils/siri";
-import { containsChinese, translateChineseToEnglish } from "./utils/translate";
+import { checkLocalTranslationReady, containsChinese, translateChineseToEnglish } from "./utils/translate";
 
 const TRANSLATE_STORAGE_KEY = "translateChineseToEnglish";
 
@@ -24,6 +25,7 @@ interface FormValues {
 export default function TypeToSiriCommand() {
   const [prompt, setPrompt] = useState("");
   const [translateToEnglish, setTranslateToEnglish] = useState(true);
+  const [localReady, setLocalReady] = useState<boolean | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -31,6 +33,11 @@ export default function TypeToSiriCommand() {
     LocalStorage.getItem<boolean>(TRANSLATE_STORAGE_KEY).then((stored) => {
       if (mounted && typeof stored === "boolean") {
         setTranslateToEnglish(stored);
+      }
+    });
+    checkLocalTranslationReady().then((ready) => {
+      if (mounted) {
+        setLocalReady(ready);
       }
     });
     return () => {
@@ -43,6 +50,10 @@ export default function TypeToSiriCommand() {
     await LocalStorage.setItem(TRANSLATE_STORAGE_KEY, nextValue);
   }
 
+  async function openTranslationSettings() {
+    await open("x-apple.systempreferences:com.apple.Localization-Settings.extension");
+  }
+
   async function sendToSiri(rawText?: string, shouldTranslate = translateToEnglish) {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -53,18 +64,19 @@ export default function TypeToSiriCommand() {
       if (textToSend && shouldTranslate && containsChinese(textToSend)) {
         const toast = await showToast({
           style: Toast.Style.Animated,
-          title: "Translating to English...",
+          title: localReady ? "Translating locally on Mac..." : "Translating to English...",
         });
         try {
-          textToSend = await translateChineseToEnglish(textToSend);
+          const translated = await translateChineseToEnglish(textToSend);
+          textToSend = translated.text;
           toast.style = Toast.Style.Success;
-          toast.title = "Translated";
+          toast.title = translated.engine === "macos-local" ? "Translated (macOS Local)" : "Translated (Google)";
           toast.message = textToSend;
         } catch (translateError) {
           console.error(translateError);
           toast.style = Toast.Style.Failure;
           toast.title = "Translation failed";
-          toast.message = "Please check network or turn off translation.";
+          toast.message = "请检查网络，或按 ⌘L 下载 macOS 本地离线翻译包";
           return;
         }
       }
@@ -87,6 +99,13 @@ export default function TypeToSiriCommand() {
     await sendToSiri(values.prompt, values.translateToEnglish);
   }
 
+  const engineStatusText =
+    localReady === true
+      ? "macOS 本地离线翻译已就绪（零网络延迟、不消耗任何额度）"
+      : localReady === false
+        ? "未检测到 macOS 离线翻译包，当前自动回退 Google Translate（按 ⌘L 打开「语言与地区 → 翻译语言」下载中文/英文后即可纯本地离线翻译）"
+        : "正在检测 macOS 本地翻译引擎…";
+
   return (
     <Form
       navigationTitle="Type to Siri"
@@ -99,6 +118,12 @@ export default function TypeToSiriCommand() {
             icon={Icon.Globe}
             shortcut={{ modifiers: ["cmd"], key: "t" }}
             onAction={() => updateTranslateToggle(!translateToEnglish)}
+          />
+          <Action
+            title="Download macOS Offline Translation Pack"
+            icon={Icon.Download}
+            shortcut={{ modifiers: ["cmd"], key: "l" }}
+            onAction={openTranslationSettings}
           />
           <Action
             title="Open Siri Only"
@@ -121,10 +146,11 @@ export default function TypeToSiriCommand() {
         id="translateToEnglish"
         title="Translation"
         label="将中文自动翻译为英文后发送给 Siri"
-        info="开启后，若输入包含中文会自动通过 Google Translate 翻译为英文再发送（免 Key、不消耗 Raycast AI 额度）；纯英文不触发翻译。按 ⌘T 可快速切换，状态会自动记住。"
+        info="开启后，若输入包含中文会自动翻译为英文再发送（优先使用 macOS 本地离线翻译，未下载离线包时回退 curl Google Translate）；纯英文不触发翻译。按 ⌘T 可快速切换。"
         value={translateToEnglish}
         onChange={updateTranslateToggle}
       />
+      {translateToEnglish && <Form.Description title="Engine" text={engineStatusText} />}
     </Form>
   );
 }
