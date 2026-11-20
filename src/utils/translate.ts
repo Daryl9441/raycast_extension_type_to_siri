@@ -5,7 +5,9 @@ import path from "path";
 
 const CHINESE_REGEX = /\p{Script=Han}/u;
 
-const SWIFT_HELPER_NAME = "local-translate-v1";
+const SWIFT_HELPER_NAME = "local-translate-v2";
+const OLD_HELPER_NAMES = ["local-translate-v1"];
+
 const SWIFT_SOURCE = `
 import Foundation
 #if canImport(Translation)
@@ -17,32 +19,112 @@ import FoundationModels
 
 @main
 struct LocalTranslate {
+    #if canImport(Translation)
+    @available(macOS 26.0, *)
+    static func tryDirectTranslate(_ text: String) async -> String? {
+        let directPairs: [(String, String)] = [
+            ("zh-Hans-CN", "en-US"),
+            ("zh-Hans", "en-US"),
+            ("zh-Hant-TW", "en-US"),
+            ("zh-Hans-CN", "en-GB"),
+        ]
+        for (srcId, dstId) in directPairs {
+            do {
+                let session = TranslationSession(
+                    installedSource: Locale.Language(identifier: srcId),
+                    target: Locale.Language(identifier: dstId)
+                )
+                let response = try await session.translate(text)
+                let out = response.targetText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !out.isEmpty {
+                    return out
+                }
+            } catch {
+                // try next pair
+            }
+        }
+        return nil
+    }
+
+    @available(macOS 26.0, *)
+    static func findInstalledPair(retries: Int = 5) async -> (Locale.Language, Locale.Language)? {
+        let availability = LanguageAvailability()
+        let explicitPairs: [(String, String)] = [
+            ("zh-Hans-CN", "en-US"),
+            ("zh-Hans", "en-US"),
+            ("zh-CN", "en-US"),
+            ("zh-Hans", "en"),
+        ]
+
+        // Cold-started translationd can transiently report .supported (0.00 progress)
+        // for ~0.2-1.5s while mounting MobileAsset/UAF locks. Retry briefly before giving up.
+        for attempt in 0..<retries {
+            for (srcId, dstId) in explicitPairs {
+                let src = Locale.Language(identifier: srcId)
+                let dst = Locale.Language(identifier: dstId)
+                if await availability.status(from: src, to: dst) == .installed {
+                    return (src, dst)
+                }
+            }
+
+            let supported = await availability.supportedLanguages
+            let zhLangs = supported.filter { $0.languageCode?.identifier == "zh" }
+            let enLangs = supported.filter { $0.languageCode?.identifier == "en" }
+            for z in zhLangs {
+                for e in enLangs {
+                    if await availability.status(from: z, to: e) == .installed {
+                        return (z, e)
+                    }
+                }
+            }
+
+            if attempt + 1 < retries {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+        }
+        return nil
+    }
+    #endif
+
     static func main() async {
         let isCheckOnly = CommandLine.arguments.contains("--check")
 
         #if canImport(Translation)
         if #available(macOS 26.0, *) {
-            let availability = LanguageAvailability()
-            let pairs: [(String, String)] = [
-                ("zh-Hans", "en-US"),
-                ("zh-CN", "en-US"),
-                ("zh-Hans", "en"),
-            ]
-            for (srcId, dstId) in pairs {
-                let src = Locale.Language(identifier: srcId)
-                let dst = Locale.Language(identifier: dstId)
-                let status = await availability.status(from: src, to: dst)
-                if status == .installed {
-                    if isCheckOnly {
-                        FileHandle.standardOutput.write(Data("READY:translation".utf8))
-                        exit(0)
-                    }
-                    let inputData = FileHandle.standardInput.readDataToEndOfFile()
-                    guard let text = String(data: inputData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines),
-                          !text.isEmpty else {
-                        exit(0)
-                    }
+            if isCheckOnly {
+                // Fast check when translationd is already warm
+                let availability = LanguageAvailability()
+                if await availability.status(
+                    from: Locale.Language(identifier: "zh-Hans-CN"),
+                    to: Locale.Language(identifier: "en-US")
+                ) == .installed {
+                    FileHandle.standardOutput.write(Data("READY:translation".utf8))
+                    exit(0)
+                }
+                // On cold start, a direct tiny translation forces translationd to mount assets immediately (~140ms)
+                if await tryDirectTranslate("好") != nil {
+                    FileHandle.standardOutput.write(Data("READY:translation".utf8))
+                    exit(0)
+                }
+                // Fallback scan across all zh -> en pairs with brief retry
+                if await findInstalledPair(retries: 4) != nil {
+                    FileHandle.standardOutput.write(Data("READY:translation".utf8))
+                    exit(0)
+                }
+            } else {
+                let inputData = FileHandle.standardInput.readDataToEndOfFile()
+                guard let text = String(data: inputData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                      !text.isEmpty else {
+                    exit(0)
+                }
+
+                if let out = await tryDirectTranslate(text) {
+                    FileHandle.standardOutput.write(Data(out.utf8))
+                    exit(0)
+                }
+
+                if let (src, dst) = await findInstalledPair(retries: 3) {
                     do {
                         let session = TranslationSession(installedSource: src, target: dst)
                         let response = try await session.translate(text)
@@ -52,7 +134,7 @@ struct LocalTranslate {
                             exit(0)
                         }
                     } catch {
-                        // try next pair
+                        // fall through
                     }
                 }
             }
@@ -146,6 +228,7 @@ function runExecFile(
 }
 
 let compilePromise: Promise<string | null> | null = null;
+let checkPromise: Promise<boolean> | null = null;
 
 async function ensureLocalTranslateHelper(): Promise<string | null> {
   const helperPath = path.join(environment.supportPath, SWIFT_HELPER_NAME);
@@ -161,6 +244,16 @@ async function ensureLocalTranslateHelper(): Promise<string | null> {
     compilePromise = (async () => {
       try {
         fs.mkdirSync(environment.supportPath, { recursive: true });
+        for (const oldName of OLD_HELPER_NAMES) {
+          const oldPath = path.join(environment.supportPath, oldName);
+          if (fs.existsSync(oldPath)) {
+            try {
+              fs.unlinkSync(oldPath);
+            } catch {
+              // ignore cleanup error
+            }
+          }
+        }
         const srcPath = path.join(environment.supportPath, `${SWIFT_HELPER_NAME}.swift`);
         const tmpBinPath = path.join(environment.supportPath, `${SWIFT_HELPER_NAME}.tmp`);
         fs.writeFileSync(srcPath, SWIFT_SOURCE, "utf8");
@@ -187,14 +280,21 @@ async function ensureLocalTranslateHelper(): Promise<string | null> {
 }
 
 export async function checkLocalTranslationReady(): Promise<boolean> {
-  try {
-    const helperPath = await ensureLocalTranslateHelper();
-    if (!helperPath) return false;
-    const { stdout } = await runExecFile(helperPath, ["--check"], { timeout: 6000 });
-    return stdout.trim().startsWith("READY:");
-  } catch {
-    return false;
+  if (!checkPromise) {
+    checkPromise = (async () => {
+      try {
+        const helperPath = await ensureLocalTranslateHelper();
+        if (!helperPath) return false;
+        const { stdout } = await runExecFile(helperPath, ["--check"], { timeout: 10000 });
+        return stdout.trim().startsWith("READY:");
+      } catch {
+        return false;
+      } finally {
+        checkPromise = null;
+      }
+    })();
   }
+  return checkPromise;
 }
 
 async function translateWithMacOSLocal(text: string): Promise<string | null> {
@@ -202,7 +302,7 @@ async function translateWithMacOSLocal(text: string): Promise<string | null> {
   if (!helperPath) return null;
 
   try {
-    const { stdout } = await runExecFile(helperPath, [], { input: text, timeout: 10000 });
+    const { stdout } = await runExecFile(helperPath, [], { input: text, timeout: 12000 });
     const cleaned = cleanTranslation(stdout);
     return cleaned || null;
   } catch (error) {

@@ -54,6 +54,16 @@ export default function TypeToSiriCommand() {
     await open("x-apple.systempreferences:com.apple.Localization-Settings.extension");
   }
 
+  async function refreshEngineStatus() {
+    setLocalReady(null);
+    const ready = await checkLocalTranslationReady();
+    setLocalReady(ready);
+    await showToast({
+      style: ready ? Toast.Style.Success : Toast.Style.Failure,
+      title: ready ? "macOS 本地离线翻译已就绪" : "未检测到 macOS 离线翻译包",
+    });
+  }
+
   async function sendToSiri(rawText?: string, shouldTranslate = translateToEnglish) {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -118,6 +128,12 @@ export default function TypeToSiriCommand() {
             icon={Icon.Globe}
             shortcut={{ modifiers: ["cmd"], key: "t" }}
             onAction={() => updateTranslateToggle(!translateToEnglish)}
+          />
+          <Action
+            title="Refresh Local Translation Status"
+            icon={Icon.ArrowClockwise}
+            shortcut={{ modifiers: ["cmd"], key: "r" }}
+            onAction={refreshEngineStatus}
           />
           <Action
             title="Download macOS Offline Translation Pack"
